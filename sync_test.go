@@ -692,7 +692,7 @@ func TestStartStop_JoinsHealthyZone(t *testing.T) {
 // It runs inside a synctest bubble, whose fake clock fast-forwards through the
 // real initialSyncBackoff/maxSyncBackoff waits the moment every goroutine is
 // blocked, so the test exercises the production backoff schedule with no
-// real-time delay. Requires GOEXPERIMENT=synctest on Go 1.24.
+// real-time delay.
 func TestSyncLoop_RetriesOnlyFailedZonesUntilRecovery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ok := &mockProvider{}

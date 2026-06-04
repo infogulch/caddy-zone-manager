@@ -97,7 +97,7 @@ Single-line forms — **TTL is always the optional trailing field**:
 
 ```caddyfile
 records {
-    a       @      203.0.113.10                       # [ttl]
+    a       @      203.0.113.10                        # [ttl]
     aaaa    @      2001:db8::1            300          # [ttl]
     cname   www    example.com.                        # [ttl]
     ns      @      ns1.example.com.                    # [ttl]
@@ -133,6 +133,9 @@ For any type not covered above (e.g. `TLSA`, `SVCB`, `HTTPS`, `DS`, …), use th
 generic `rr` directive. It keeps the TTL in its zone-file-native position
 (right after the name), and the data is standard presentation-format RDATA,
 validated via libdns `RR.Parse()`:
+
+> [!NOTE]
+> Support for `rr` records is dependent on your libdns provider.
 
 ```caddyfile
 records {
@@ -229,9 +232,9 @@ protect_rrset *   verification   # protect any RRset named "verification"
 
 A record's effective TTL is resolved in this order:
 
-1. an explicit TTL on the record,
-2. the zone's `default_ttl`,
-3. `0` — meaning *let the DNS provider choose its own default*.
+1. an explicit TTL on the record; if zero or unset then:
+2. the zone's `default_ttl`; if zero or unset then:
+3. the default TTL chosen by the DNS provider
 
 TTL values accept a bare integer (seconds) or a whole-second Go/Caddy duration
 (`1h`, `90m`, `300s`). Fractional TTLs such as `500ms` are rejected because DNS
@@ -339,32 +342,52 @@ A configured provider must implement the libdns interfaces the module needs:
 - [`libdns.RecordDeleter`](https://pkg.go.dev/github.com/libdns/libdns#RecordDeleter)
 
 Most `caddy-dns` providers implement all three. If a provider is missing one,
-provisioning fails with an error that names the zone, the provider, and the
-missing interface(s).
+provisioning fails.
 
 ## How reconciliation works
 
 For each zone, independently and concurrently:
 
-1. Parse the declared records into typed libdns records.
-2. `GetRecords` to read the zone's current state.
-3. Mark RRsets containing a protected record so they're never written or
-   deleted.
-4. For each declared RRset: **create** (absent), **update** (differs), or skip
-   (**unchanged**). Changed RRsets are written with `SetRecords`.
-5. In `mirror` only: managed-eligible RRsets that exist but aren't declared are
-   deleted.
-6. In `report`: pending changes are logged and nothing is mutated.
+1. **Fetch:** call `GetRecords` to read the live zone state and parse declared
+   records into typed libdns records.
+2. **Mark protected RRsets:** scan every live record through the configured
+   protection policies. Any `(name, type)` pair containing at least one
+   protected record is flagged — it is never written or deleted.
+3. **Plan creates/updates:** for each declared RRset:
+   - If the RRset is live-protected (data-dependent, e.g. an `HTTPS` record
+     Caddy has augmented with an `ech=` param your declaration doesn't carry)
+     → log a warning and leave it untouched.
+   - If the RRset doesn't exist in the live zone → **create**.
+   - If the live RRset matches exactly (same canonical RDATA and effective
+     TTL) → **skip** (unchanged).
+   - Otherwise → **update**. `SetRecords` replaces the live RRset with
+     exactly the declared members — any live records in that RRset that were
+     not declared are removed. To avoid resetting provider-assigned TTLs for
+     members that aren't actually changing, any member with a desired TTL of
+     `0` ("provider decides") inherits the current TTL for that record if one
+     already exists.
+4. **Plan deletes:** scan live RRsets for entries that are neither declared
+   nor protected — these are the deletion candidates.
+5. **Execute sync depending on the mode:**
+   - `report` — log the planned creates, updates, and deletes; mutate nothing.
+   - `upsert` — write creates and updates via `SetRecords`; undeclared
+     *RRsets* are not deleted (counted and logged as `would_delete`), but
+     undeclared records *within* a declared RRset are still removed by
+     `SetRecords` (see the `upsert` caveat in [Sync modes](#sync-modes)).
+   - `mirror` — write creates and updates via `SetRecords`; delete candidates
+     via `DeleteRecords`.
 
-Re-running with no config changes performs **zero writes**. To make this hold
-even when a provider echoes record data in a different-but-equivalent
-presentation form, the "differs" check in step 4 compares RDATA in libdns's
-canonical form — so cosmetic differences like IPv6 compression (`AAAA`), flag
-and quoting style (`CAA`), or internal whitespace (`MX`/`SRV`) don't trigger a
-rewrite. (`HTTPS`/`SVCB` records are compared verbatim, since their `SvcParams`
-have no single canonical ordering.) A failure in one zone is logged and
-isolated; it does not abort other zones. The initial sync is retried with
-exponential backoff to tolerate a not-yet-ready network at boot.
+**Idempotency:** re-running with no config changes performs zero writes. RDATA
+is compared in libdns's canonical presentation form, so cosmetic provider
+differences like IPv6 compression (`AAAA`), flag and quoting style (`CAA`), or
+internal whitespace (`MX`/`SRV`) don't trigger a rewrite. `HTTPS`/`SVCB`
+records are compared verbatim — libdns serializes their `SvcParams` from a Go
+map, so re-serializing could produce a different order and make equal records
+compare unequal.
+
+A failure in one zone is logged and isolated; it does not abort other zones.
+The initial sync is retried with exponential backoff to tolerate a not-yet-ready
+network at boot.
 
 ## Limitations
 
