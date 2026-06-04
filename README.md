@@ -5,16 +5,12 @@ synchronization** of DNS records to a target zone, using Caddy's existing
 [libdns](https://github.com/libdns/libdns) DNS-provider ecosystem.
 
 You declare the records a zone should contain; on startup and on every config
-reload, the module reconciles the zone to match — creating, updating, and
+reload, the module reconciles the zone to match by creating, updating, and
 (optionally) deleting records via any `dns.providers.*` plugin.
 
-It implements the feature proposed in
-[caddyserver/caddy#7779](https://github.com/caddyserver/caddy/issues/7779) and
-is modeled on [mholt/caddy-dynamicdns](https://github.com/mholt/caddy-dynamicdns).
-
-> **Status:** young module. `sync_mode` is **required** (no default) so you make
-> a conscious safety choice. Read [Ownership & safety](#ownership--safety)
-> before using `mirror`.
+> [!IMPORTANT]
+> This module is **experimental** and may not be suitable for production use. If
+> you try it, please let me know how it works for you.
 
 ## Contents
 
@@ -79,27 +75,30 @@ Start Caddy as usual; the zone is reconciled on boot and on every reload.
 
 | Mode      | Creates/updates declared records | Deletes undeclared records | Notes |
 |-----------|:--------------------------------:|:--------------------------:|-------|
-| `report`  | no (dry run)                     | no                         | Logs pending changes only. Great for previewing. |
-| `upsert`  | yes                              | **no**                     | Conservative. Safe default once the module stabilizes. |
-| `mirror`  | yes                              | **yes** (managed-eligible) | Full desired-state reconciliation. Destructive — read [Ownership & safety](#ownership--safety). |
+| `report`  | ❌                                | ❌                          | Logs pending changes only. Good for previewing changes. |
+| `upsert`  | ✅                               | ❌                          | Only declared records are updated. Undeclared records should be preserved. |
+| `mirror`  | ✅                               | ✅                         | Full desired-state reconciliation. Can be destructive, read [Ownership & safety](#ownership--safety). |
+
+Note: Neither `upsert` nor `mirror` modes are atomic or transactional, if
+something else modifies the zone while a sync is in progress, the sync may
+lose or overwrite those changes.
 
 ## Record directives
 
-Record directives live in a `records { … }` block. Each block must be
-**multi-line** (one record per line).
+Record directives live underneath a `records { … }` block. There are two forms:
 
-Single-line forms — **TTL is always the optional trailing field**:
+Single-line forms: (TTL is an optional trailing field.)
 
 ```caddyfile
 records {
-    a       @      203.0.113.10                        # [ttl]
-    aaaa    @      2001:db8::1            300          # [ttl]
-    cname   www    example.com.                        # [ttl]
-    ns      @      ns1.example.com.                    # [ttl]
-    txt     @      "v=spf1 -all"                       # [ttl]
-    caa     @      0 issue "letsencrypt.org"           # [ttl]
-    mx      @      10 mail.example.com.   3600         # [ttl]
-    srv     _sip._tcp 10 5 5060 sip.example.com.       # [ttl]
+    a       @      203.0.113.10                       # default ttl
+    aaaa    @      2001:db8::1                    300
+    cname   www    example.com.                       # default ttl
+    ns      @      ns1.example.com.                 0 # 0 = default ttl
+    txt     @      "v=spf1 -all"                      # default ttl
+    caa     @      0 issue "letsencrypt.org"          # default ttl
+    mx      @      10 mail.example.com.          3600
+    srv     _sip._tcp 10 5 5060 sip.example.com.      # default ttl
 }
 ```
 
@@ -125,12 +124,13 @@ records {
 ### Generic records (`rr`)
 
 For any type not covered above (e.g. `TLSA`, `SVCB`, `HTTPS`, `DS`, …), use the
-generic `rr` directive. It keeps the TTL in its zone-file-native position
-(right after the name), and the data is standard presentation-format RDATA,
-validated via libdns `RR.Parse()`:
+generic `rr` directive. It keeps the TTL in its zone-file-native position (right
+after the name), and the data is standard presentation-format RDATA, though the
+data field may need to be quoted if it contains spaces or other special
+characters.
 
 > [!NOTE]
-> Support for `rr` records is dependent on your libdns provider.
+> Support for some `rr` records may vary depending on the libdns provider.
 
 ```caddyfile
 records {
@@ -154,26 +154,30 @@ name (which is exactly what DNS providers expect).
 
 ## Ownership & safety
 
-The whole point of `mirror` is to delete records you didn't declare — so the
-module provides filters to protect records it should never touch. **A protected
-record is never modified or deleted, in any `sync_mode`.**
+The whole point of `mirror` is to delete records you didn't declare, so the
+module provides filters to protect records it should never touch. Protected
+records are never modified or deleted, in any `sync_mode`.
 
 Declaring a record in `records {}` that is *also* protected is contradictory
-and is **rejected at startup** — remove the declaration or disable the relevant
-protection. (If you genuinely want to manage `_acme-challenge` records yourself,
-use `protect none` or an explicit `protect` list that omits `caddy-acme`.)
+and is **rejected at startup**; remove the declaration or disable the relevant
+protection.
 
 ### `protect [default|none|all|<policy...>]`
 
-Configures the built-in protection policies for this zone. If omitted, the
-module uses the default safety set:
+`protect` may be specified at most once per zone and configures the special
+protection policies for this zone. If present, the chosen set of policies
+replaces the default. These named policies have particular relevance as a caddy
+app or their implementation too particular to be able to specify with the more
+generic `protect_rrset` (see below).
+
+Example:
 
 ```caddyfile
 protect caddy-acme caddy-ech apex-ns soa
 ```
 
-`protect` may be specified at most once per zone. If present, it replaces the
-built-in policy set exactly, except for the convenience keywords:
+Instead of listing the specific policies to enable, you can use one of 3
+keywords: `default`, `none`, `all`, to enable the predefined set of policies.
 
 | Policy / keyword | Meaning |
 |---|---|
@@ -193,18 +197,21 @@ protect none                     # dangerous: no built-in protections
 protect caddy-acme apex-ns soa   # disable caddy-ech only
 ```
 
-> **Note:** Caddy does not expose a runtime inventory of the records it
-> manages, so `caddy-acme` and `caddy-ech` are deliberately conservative static
-> heuristics, not an authoritative guarantee. If you manage these records in
-> unusual ways, add explicit `protect_rrset` rules.
+> [!NOTE]
+> Caddy does not expose a runtime inventory of the records it manages
+> so `caddy-acme` and `caddy-ech` use a conservative heuristic to protect 
+> records used by these systems.
 
-> **ECH co-management caveat:** because protection is `(name, type)`-granular,
-> if you *declare* an `HTTPS` record at a name where Caddy also publishes ECH,
-> the live record will carry an `ech=` param and the whole RRset is protected —
-> so your declared `HTTPS` record is **left untouched** (logged at WARN) rather
-> than overwritten, to avoid clobbering Caddy's `ech=`. Manage that record
-> outside this module, omit `caddy-ech` from `protect`, or disable ECH
-> publication for that name.
+<details>
+<summary>ECH co-management caveat</summary>
+
+Since protection is `(name, type)`-granular, if you *declare* an `HTTPS` record
+at a name where Caddy also publishes ECH, the live record will carry an `ech=`
+param and the whole RRset is protected. So your declared `HTTPS` record is left
+untouched (logged at WARN) rather than overwritten, to avoid clobbering Caddy's
+`ech=`.
+
+</details>
 
 ### `protect_rrset <type> <name...>`
 
@@ -280,16 +287,12 @@ all blocks aggregate into one app instance:
 ```
 
 **Each `(zone, provider)` pair must be declared in exactly one block.**
-Declaring the same zone twice with the *same* provider (including
-trailing-dot/case variants like `example.com` and `example.com.`) is an error —
-so a zone's complete desired state and safety filters always live in one place.
-
-You *may* declare the same zone name more than once as long as each block uses a
-**different** DNS provider (for example, to publish the same zone to two
-providers). Each `(zone, provider)` pair is then reconciled independently, so
-make sure every block carries the complete desired state and protection settings
-for the records it manages — especially in `mirror` mode, which deletes
-undeclared records.
+Declaring the same zone twice with the same name and same provider (after domain
+trailing-dot/case normalization) is an error. This allows you to manage the same
+zone on different providers, say, provider one configures NS records to point to
+provider 2 which then manages regular records. Each `(zone, provider)` pair is
+then reconciled independently, so make sure every block carries the complete
+desired state and protection settings for the records it manages.
 
 ## Equivalent JSON
 
@@ -326,7 +329,7 @@ native JSON:
 ```
 
 Note that `default_ttl` and per-record `ttl` are expressed in **nanoseconds** in
-JSON (Go `time.Duration`), e.g. `3600000000000` = 3600s.
+JSON (Go `time.Duration`), e.g. `3600000000000` = 3600s. That's 9 extra zeros.
 
 ## Provider requirements
 
@@ -347,7 +350,7 @@ For each zone, independently and concurrently:
    records into typed libdns records.
 2. **Mark protected RRsets:** scan every live record through the configured
    protection policies. Any `(name, type)` pair containing at least one
-   protected record is flagged — it is never written or deleted.
+   protected record is flagged to never be written or deleted.
 3. **Plan creates/updates:** for each declared RRset:
    - If the RRset is live-protected (data-dependent, e.g. an `HTTPS` record
      Caddy has augmented with an `ech=` param your declaration doesn't carry)
@@ -366,21 +369,21 @@ For each zone, independently and concurrently:
      for that record if one already exists, to avoid resetting provider-assigned
      TTLs for members that aren't actually changing.
 4. **Plan deletes:** scan live RRsets for entries that are neither declared
-   nor protected — these are the deletion candidates.
+   nor protected and collect them as deletion candidates.
 5. **Execute sync depending on the mode:**
-   - `report` — log the planned creates, updates, and deletes; mutate nothing.
-   - `upsert` — write creates and updates via `SetRecords`; undeclared RRsets
+   - `report`: log the planned creates, updates, and deletes; mutate nothing.
+   - `upsert`: write creates and updates via `SetRecords`; undeclared RRsets
      are not deleted (counted and logged as `would_delete`); undeclared records
      *within* a declared RRset are also preserved by merging them into the
      `SetRecords` payload.
-   - `mirror` — write creates and updates via `SetRecords`; delete candidates
+   - `mirror`: write creates and updates via `SetRecords`; delete candidates
      via `DeleteRecords`.
 
 **Idempotency:** re-running with no config changes performs zero writes. RDATA
 is compared in libdns's canonical presentation form, so cosmetic provider
 differences like IPv6 compression (`AAAA`), flag and quoting style (`CAA`), or
 internal whitespace (`MX`/`SRV`) don't trigger a rewrite. `HTTPS`/`SVCB`
-records are compared verbatim — libdns serializes their `SvcParams` from a Go
+records are compared verbatim; libdns serializes their `SvcParams` from a Go
 map, so re-serializing could produce a different order and make equal records
 compare unequal.
 
@@ -391,13 +394,12 @@ network at boot.
 ## Limitations
 
 - **Sync on startup/reload only.** Continuous drift correction (a periodic
-  re-sync interval) is a future enhancement, not in this release.
+  re-sync interval) is left as a future enhancement.
 - **No zone-file import**, DNSSEC management, or DANE/TLSA certificate-lifecycle
   automation. You can *publish* TLSA records via `rr`, but rollover timing is
   out of scope.
-- **Caddy protection policies are heuristic**, not an authoritative list of
-  Caddy-managed records (see above).
-- Record blocks must be **multi-line** (one record per line).
+- **Caddy protection policies are heuristic**, open an issue if you run into
+  any issues with these protection policies.
 
 ## License
 
