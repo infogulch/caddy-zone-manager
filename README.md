@@ -83,11 +83,6 @@ Start Caddy as usual; the zone is reconciled on boot and on every reload.
 | `upsert`  | yes                              | **no**                     | Conservative. Safe default once the module stabilizes. |
 | `mirror`  | yes                              | **yes** (managed-eligible) | Full desired-state reconciliation. Destructive — read [Ownership & safety](#ownership--safety). |
 
-> **`upsert` caveat:** because the underlying libdns `SetRecords` makes each
-> declared `(name, type)` RRset *exactly* match your config, extra records
-> *within* a declared RRset are replaced. `upsert` only guarantees that
-> **undeclared** RRsets are never touched.
-
 ## Record directives
 
 Record directives live in a `records { … }` block. Each block must be
@@ -358,22 +353,26 @@ For each zone, independently and concurrently:
      Caddy has augmented with an `ech=` param your declaration doesn't carry)
      → log a warning and leave it untouched.
    - If the RRset doesn't exist in the live zone → **create**.
-   - If the live RRset matches exactly (same canonical RDATA and effective
-     TTL) → **skip** (unchanged).
-   - Otherwise → **update**. `SetRecords` replaces the live RRset with
-     exactly the declared members — any live records in that RRset that were
-     not declared are removed. To avoid resetting provider-assigned TTLs for
-     members that aren't actually changing, any member with a desired TTL of
-     `0` ("provider decides") inherits the current TTL for that record if one
-     already exists.
+   - If the live RRset matches (same canonical RDATA and effective TTL for
+     every declared member; in `upsert` mode the live RRset may also contain
+     extra undeclared members and still be considered up-to-date) → **skip**
+     (unchanged).
+   - Otherwise → **update**. `SetRecords` replaces the live RRset atomically.
+     In `mirror` mode only the declared members are written, so any live record
+     in that RRset that was not declared is removed. In `upsert` mode the
+     declared members are merged with undeclared live members before the write,
+     so no sibling record within the RRset is lost. In both modes, any member
+     with a desired TTL of `0` ("provider decides") inherits the current TTL
+     for that record if one already exists, to avoid resetting provider-assigned
+     TTLs for members that aren't actually changing.
 4. **Plan deletes:** scan live RRsets for entries that are neither declared
    nor protected — these are the deletion candidates.
 5. **Execute sync depending on the mode:**
    - `report` — log the planned creates, updates, and deletes; mutate nothing.
-   - `upsert` — write creates and updates via `SetRecords`; undeclared
-     *RRsets* are not deleted (counted and logged as `would_delete`), but
-     undeclared records *within* a declared RRset are still removed by
-     `SetRecords` (see the `upsert` caveat in [Sync modes](#sync-modes)).
+   - `upsert` — write creates and updates via `SetRecords`; undeclared RRsets
+     are not deleted (counted and logged as `would_delete`); undeclared records
+     *within* a declared RRset are also preserved by merging them into the
+     `SetRecords` payload.
    - `mirror` — write creates and updates via `SetRecords`; delete candidates
      via `DeleteRecords`.
 

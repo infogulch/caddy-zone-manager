@@ -328,8 +328,11 @@ func TestSync_UpdateOnlyDifferingRRsets(t *testing.T) {
 	if errs := app.syncAll(); errors.Join(errs...) != nil {
 		t.Fatalf("syncAll: %v", errs)
 	}
-	if got := m.dataFor("example.com.", "@", "A"); len(got) != 1 || got[0].Data != "203.0.113.99" {
-		t.Fatalf("A @ = %v, want [203.0.113.99]", got)
+	// In upsert mode the new address is added, but the undeclared .10 must be
+	// preserved — upsert never deletes records, not even sibling members of the
+	// same RRset.
+	if got := m.dataFor("example.com.", "@", "A"); len(got) != 2 {
+		t.Fatalf("A @ = %v, want [203.0.113.10 203.0.113.99]", got)
 	}
 	if got := m.dataFor("example.com.", "@", "TXT"); len(got) != 1 || got[0].Data != "keepme" {
 		t.Fatalf("TXT @ = %v, want [keepme]", got)
@@ -348,7 +351,8 @@ func TestSync_UpdatePreservesUnchangedSiblingTTL(t *testing.T) {
 	}
 
 	app, _ := normalizedTestApp(t, newZoneManager(m, syncModeUpsert,
-		// Desired keeps .10 (ttl 0), drops .11, adds .12 (ttl 0) — the RRset changes.
+		// Desired keeps .10 (ttl 0) and adds .12 (ttl 0) — the RRset changes.
+		// .11 is NOT declared but must survive: upsert never deletes.
 		rr("@", "A", "203.0.113.10", 0),
 		rr("@", "A", "203.0.113.12", 0),
 	))
@@ -365,9 +369,9 @@ func TestSync_UpdatePreservesUnchangedSiblingTTL(t *testing.T) {
 	if ttl, ok := m.ttlFor("example.com.", "@", "A", "203.0.113.12"); !ok || ttl != 300*time.Second {
 		t.Errorf(".12 TTL = %v (present=%v), want provider default 300s", ttl, ok)
 	}
-	// .11 was dropped from the declared RRset.
-	if _, ok := m.ttlFor("example.com.", "@", "A", "203.0.113.11"); ok {
-		t.Error(".11 should have been removed")
+	// .11 was not declared but must be preserved in upsert mode.
+	if _, ok := m.ttlFor("example.com.", "@", "A", "203.0.113.11"); !ok {
+		t.Error(".11 should be preserved in upsert mode")
 	}
 }
 
@@ -436,6 +440,79 @@ func TestSync_UpsertNeverDeletesUndeclared(t *testing.T) {
 	}
 	if got := m.dataFor("example.com.", "old", "TXT"); len(got) != 1 {
 		t.Fatalf("undeclared TXT old was removed in upsert: %v", got)
+	}
+}
+
+// TestSync_UpsertSubsetIsIdempotent verifies that when the live RRset is a
+// superset of the desired RRset, upsert mode considers it matched and does
+// not call SetRecords (which would silently delete the undeclared sibling).
+func TestSync_UpsertSubsetIsIdempotent(t *testing.T) {
+	m := &mockProvider{}
+	m.recs = []libdns.RR{
+		{Name: "@", Type: "A", Data: "203.0.113.10"},
+		{Name: "@", Type: "A", Data: "203.0.113.11"}, // undeclared sibling
+	}
+
+	// Declare only the first address; the second is an undeclared sibling.
+	app, _ := normalizedTestApp(t, newZoneManager(m, syncModeUpsert,
+		rr("@", "A", "203.0.113.10", 0),
+	))
+
+	if errs := app.syncAll(); errors.Join(errs...) != nil {
+		t.Fatalf("syncAll: %v", errs)
+	}
+	if m.setCalls != 0 {
+		t.Fatalf("setCalls = %d, want 0: desired is a subset of current", m.setCalls)
+	}
+	if m.deleteCalls != 0 {
+		t.Fatalf("deleteCalls = %d, want 0 in upsert", m.deleteCalls)
+	}
+	if got := m.dataFor("example.com.", "@", "A"); len(got) != 2 {
+		t.Fatalf("undeclared sibling A record was removed in upsert: got %v", got)
+	}
+}
+
+// TestSync_UpsertPreservesUndeclaredSiblingOnUpdate verifies that when an
+// RRset update is required in upsert mode (e.g. a new address is declared),
+// the resulting SetRecords call includes both the desired records AND any
+// undeclared current members, so SetRecords does not delete them.
+func TestSync_UpsertPreservesUndeclaredSiblingOnUpdate(t *testing.T) {
+	m := &mockProvider{}
+	m.recs = []libdns.RR{
+		{Name: "@", Type: "A", Data: "203.0.113.10"},
+		{Name: "@", Type: "A", Data: "203.0.113.11"}, // undeclared sibling
+	}
+
+	// Declare a new address not currently in the zone; the sibling must survive.
+	app, _ := normalizedTestApp(t, newZoneManager(m, syncModeUpsert,
+		rr("@", "A", "203.0.113.99", 0),
+	))
+
+	if errs := app.syncAll(); errors.Join(errs...) != nil {
+		t.Fatalf("syncAll: %v", errs)
+	}
+	if m.deleteCalls != 0 {
+		t.Fatalf("deleteCalls = %d, want 0 in upsert", m.deleteCalls)
+	}
+	// The new address must be present.
+	if got := m.dataFor("example.com.", "@", "A"); len(got) != 3 {
+		t.Fatalf("want 3 A records after upsert add, got %v", got)
+	}
+	// Both pre-existing addresses must still be present.
+	found10, found11 := false, false
+	for _, rec := range m.dataFor("example.com.", "@", "A") {
+		switch strings.TrimSpace(rec.Data) {
+		case "203.0.113.10":
+			found10 = true
+		case "203.0.113.11":
+			found11 = true
+		}
+	}
+	if !found10 {
+		t.Error("pre-existing A 203.0.113.10 was removed by upsert")
+	}
+	if !found11 {
+		t.Error("undeclared sibling A 203.0.113.11 was removed by upsert")
 	}
 }
 

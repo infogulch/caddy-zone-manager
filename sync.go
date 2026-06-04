@@ -213,19 +213,35 @@ func (a *App) syncZone(zc *ZoneConfig) error {
 			continue
 		}
 		crecs, exists := currentByKey[key]
+		// In upsert mode the idempotency predicate is a subset check: if
+		// every desired record is already present in the live RRset (with
+		// the right data and TTL), the RRset is considered up-to-date even
+		// if the live RRset contains additional undeclared members.
+		isMatch := rrsetEqual(drecs, crecs)
+		if !isMatch && zc.SyncMode == syncModeUpsert {
+			isMatch = rrsetSubset(drecs, crecs)
+		}
 		switch {
 		case !exists:
 			toApply = append(toApply, drecs...)
 			created += len(drecs)
 			log.Debug("RRset will be created", zap.String("rrset", key.String()))
-		case rrsetEqual(drecs, crecs):
+		case isMatch:
 			matched += len(drecs)
 		default:
-			// SetRecords replaces the whole RRset, so we must send every desired
-			// member. To avoid resetting the TTLs of members that aren't actually
-			// changing, carry over the current TTL for any member whose desired
-			// TTL is 0 ("provider decides") and whose data already exists.
-			toApply = append(toApply, withPreservedTTLs(drecs, crecs)...)
+			// SetRecords replaces the whole RRset, so we must send every
+			// member we want to keep. In upsert mode that means merging
+			// the desired records with any undeclared current members so
+			// that SetRecords does not silently delete sibling records
+			// within the same RRset. In mirror mode we only send the
+			// desired records (undeclared siblings will be removed). In
+			// both cases the current TTL is preserved for members whose
+			// desired TTL is 0 ("provider decides").
+			if zc.SyncMode == syncModeUpsert {
+				toApply = append(toApply, mergeRRsets(drecs, crecs)...)
+			} else {
+				toApply = append(toApply, withPreservedTTLs(drecs, crecs)...)
+			}
 			updated += len(drecs)
 			log.Debug("RRset will be updated", zap.String("rrset", key.String()))
 		}
@@ -407,6 +423,46 @@ func withPreservedTTLs(desired, current []libdns.Record) []libdns.Record {
 		out = append(out, r)
 	}
 	return out
+}
+
+// rrsetSubset reports whether every desired record is already present in the
+// current RRset with matching data (and matching TTL when the desired TTL is
+// non-zero). Unlike rrsetEqual it does not require the sizes to match —
+// current may contain extra undeclared members. This is the correct
+// idempotency predicate for upsert mode.
+func rrsetSubset(desired, current []libdns.Record) bool {
+	cm := dataTTLMap(current)
+	for _, r := range desired {
+		rr := r.RR()
+		cttl, ok := cm[canonicalData(rr)]
+		if !ok {
+			return false
+		}
+		if rr.TTL != 0 && rr.TTL != cttl {
+			return false
+		}
+	}
+	return true
+}
+
+// mergeRRsets returns the records to write to a provider in upsert mode when
+// a desired RRset diverges from the current one. It starts with
+// withPreservedTTLs(desired, current) — giving desired records precedence
+// with TTL carry-over for unchanged data — and then appends any current
+// records whose RDATA is not covered by desired, so that SetRecords does not
+// inadvertently delete sibling records within the same RRset.
+func mergeRRsets(desired, current []libdns.Record) []libdns.Record {
+	merged := withPreservedTTLs(desired, current)
+	desiredData := make(map[string]bool, len(desired))
+	for _, r := range desired {
+		desiredData[canonicalData(r.RR())] = true
+	}
+	for _, r := range current {
+		if !desiredData[canonicalData(r.RR())] {
+			merged = append(merged, r)
+		}
+	}
+	return merged
 }
 
 // normalizeProtectPolicies validates a user-specified built-in protection
