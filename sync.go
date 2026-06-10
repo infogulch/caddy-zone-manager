@@ -388,14 +388,38 @@ func dataTTLMap(recs []libdns.Record) map[string]time.Duration {
 // data is effectively returned trimmed. Both fall back to the trimmed raw
 // RDATA.
 func canonicalData(rr libdns.RR) string {
-	switch strings.ToUpper(rr.Type) {
+	typ := strings.ToUpper(rr.Type)
+	switch typ {
 	case "HTTPS", "SVCB":
 		return strings.TrimSpace(rr.Data)
 	}
+	data := strings.TrimSpace(rr.Data)
 	if rec, err := rr.Parse(); err == nil {
-		return strings.TrimSpace(rec.RR().Data)
+		data = strings.TrimSpace(rec.RR().Data)
 	}
-	return strings.TrimSpace(rr.Data)
+	switch typ {
+	case "CNAME", "NS", "MX", "SRV", "PTR", "ANAME", "DNAME":
+		data = canonicalizeTargetToken(data)
+	}
+	return data
+}
+
+// canonicalizeTargetToken normalizes the final whitespace-separated token of
+// RDATA — the target hostname of CNAME/NS/MX/SRV/PTR-style records — by
+// lowercasing it (DNS names are case-insensitive, RFC 4343) and ensuring
+// exactly one trailing dot. libdns round-trips these targets verbatim, and
+// providers commonly return them without the trailing dot that zone-file
+// presentation uses (e.g. Linode returns "www.example.com" for a declared
+// "www.example.com."), which would otherwise defeat idempotency and rewrite
+// the RRset on every sync.
+func canonicalizeTargetToken(data string) string {
+	fields := strings.Fields(data)
+	if len(fields) == 0 {
+		return data
+	}
+	last := fields[len(fields)-1]
+	fields[len(fields)-1] = strings.ToLower(strings.TrimRight(last, ".")) + "."
+	return strings.Join(fields, " ")
 }
 
 // withPreservedTTLs returns the desired records to write for a changed RRset,

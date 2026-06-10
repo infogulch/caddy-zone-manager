@@ -283,6 +283,36 @@ func TestSync_Idempotent_EquivalentRDATANotRewritten(t *testing.T) {
 	}
 }
 
+func TestSync_Idempotent_TargetTrailingDotNotRewritten(t *testing.T) {
+	// Providers commonly echo name-target RDATA (CNAME/NS/MX/SRV targets)
+	// without the trailing dot that zone-file presentation uses — observed
+	// live with Linode, which returns "host1.example.com" for a declared
+	// "host1.example.com." — and may also change the target's letter case.
+	// A re-sync must recognize these as equivalent and perform no writes;
+	// before canonicalizeTargetToken this rewrote the RRset on every sync.
+	m := &mockProvider{}
+	m.recs = []libdns.RR{
+		{Name: "www", Type: "CNAME", Data: "host1.example.com"},
+		{Name: "@", Type: "MX", Data: "10 Mail.example.com"},
+		{Name: "sub", Type: "NS", Data: "ns1.example.net"},
+		{Name: "_sip._tcp", Type: "SRV", Data: "10 5 5060 sip.example.com"},
+	}
+
+	app, _ := normalizedTestApp(t, newZoneManager(m, syncModeUpsert,
+		rr("www", "CNAME", "host1.example.com.", 0),
+		rr("@", "MX", "10 mail.example.com.", 0),
+		rr("sub", "NS", "ns1.example.net.", 0),
+		rr("_sip._tcp", "SRV", "10 5 5060 sip.example.com.", 0),
+	))
+
+	if errs := app.syncAll(); errors.Join(errs...) != nil {
+		t.Fatalf("syncAll: %v", errs)
+	}
+	if m.setCalls != 0 {
+		t.Fatalf("setCalls = %d, want 0 (dotless/recased targets must not be rewritten)", m.setCalls)
+	}
+}
+
 func TestSync_Idempotent_TXTNotRewritten(t *testing.T) {
 	// TXT is opaque to libdns: Parse() round-trips the presentation form
 	// verbatim (it does NOT normalize quoting), so canonicalData only trims
