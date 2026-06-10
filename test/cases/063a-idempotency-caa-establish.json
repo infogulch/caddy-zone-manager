@@ -1,0 +1,15 @@
+{
+  "name": "idempotency-caa-establish",
+  "description": "Establish a CAA record at host9-{{nonce}}.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host9-{{nonce}}", "type": "AAAA", "data": "2001:db8::1" },
+      { "name": "host9-{{nonce}}", "type": "CAA", "data": "0 issue \"letsencrypt.org\"" }
+    ]
+  },
+  "expect_rr": [
+    { "name": "host9-{{nonce}}", "type": "CAA", "data": "0 issue \"letsencrypt.org\"" }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "idempotency-upsert",
+  "description": "Reloading the identical upsert config (copy of 054a) creates and updates nothing.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "protect": ["apex-ns", "soa"],
+    "records": [
+      { "name": "_acme-challenge.host1-{{nonce}}", "type": "TXT", "data": "czm-acme-{{nonce}}" }
+    ]
+  },
+  "expect_sync": { "created": 0, "updated": 0, "matched_min": 1 }
+}

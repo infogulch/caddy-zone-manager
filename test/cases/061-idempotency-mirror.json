@@ -1,0 +1,13 @@
+{
+  "name": "idempotency-mirror",
+  "description": "Reloading the identical mirror config (copy of 054b) creates, updates, and deletes nothing.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "mirror",
+    "protect": ["default"],
+    "records": [
+      { "name": "host8-{{nonce}}", "type": "TXT", "data": "czm-protected-{{nonce}}" }
+    ]
+  },
+  "expect_sync": { "created": 0, "updated": 0, "deleted": 0 }
+}

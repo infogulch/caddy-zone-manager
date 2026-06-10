@@ -1,0 +1,13 @@
+{
+  "name": "idempotency-caa-normalize",
+  "description": "Re-declaring the same CAA record verbatim is a no-op; quote normalization is idempotent.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host9-{{nonce}}", "type": "AAAA", "data": "2001:db8::1" },
+      { "name": "host9-{{nonce}}", "type": "CAA", "data": "0 issue \"letsencrypt.org\"" }
+    ]
+  },
+  "expect_sync": { "created": 0, "updated": 0 }
+}

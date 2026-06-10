@@ -1,0 +1,15 @@
+{
+  "name": "upsert-mx",
+  "description": "Upsert creates an MX record at the apex alongside protected NS/SOA.",
+  "tier": "advisory",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.10" },
+      { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-{{nonce}}" },
+      { "name": "host4-{{nonce}}", "type": "CNAME", "data": "host1-{{nonce}}.{{zone}}" },
+      { "name": "@", "type": "MX", "data": "10 host1-{{nonce}}.{{zone}}" }
+    ]
+  },
+  "expect_rr": [{ "name": "@", "type": "MX", "data": "10 host1-{{nonce}}.{{zone}}" }]
+}

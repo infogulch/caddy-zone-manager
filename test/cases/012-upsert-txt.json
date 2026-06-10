@@ -1,0 +1,13 @@
+{
+  "name": "upsert-txt",
+  "description": "Upsert creates a TXT record at host3-{{nonce}} carrying the per-run nonce.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.10" },
+      { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-{{nonce}}" }
+    ]
+  },
+  "expect_rr": [{ "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-{{nonce}}" }]
+}

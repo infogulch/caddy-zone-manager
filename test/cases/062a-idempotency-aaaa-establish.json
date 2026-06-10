@@ -1,0 +1,14 @@
+{
+  "name": "idempotency-aaaa-establish",
+  "description": "Establish host9-{{nonce}} AAAA with compressed IPv6 notation.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host9-{{nonce}}", "type": "AAAA", "data": "2001:db8::1" }
+    ]
+  },
+  "expect_rr": [
+    { "name": "host9-{{nonce}}", "type": "AAAA", "data": "2001:db8::1" }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "update-a-value",
+  "description": "Upsert updates host1-{{nonce}} A record data to a new IP.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.11" },
+      { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-{{nonce}}" },
+      { "name": "host4-{{nonce}}", "type": "CNAME", "data": "host1-{{nonce}}.{{zone}}" }
+    ]
+  },
+  "expect_rr": [{ "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.11" }]
+}

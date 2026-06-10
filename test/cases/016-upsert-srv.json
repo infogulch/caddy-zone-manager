@@ -1,0 +1,21 @@
+{
+  "name": "upsert-srv",
+  "description": "Upsert creates an SRV record at _test-{{nonce}}._tcp.",
+  "tier": "advisory",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.10" },
+      { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-{{nonce}}" },
+      { "name": "host4-{{nonce}}", "type": "CNAME", "data": "host1-{{nonce}}.{{zone}}" },
+      {
+        "name": "_test-{{nonce}}._tcp",
+        "type": "SRV",
+        "data": "10 5 5060 host1-{{nonce}}.{{zone}}"
+      }
+    ]
+  },
+  "expect_rr": [
+    { "name": "_test-{{nonce}}._tcp", "type": "SRV", "data": "10 5 5060 host1-{{nonce}}.{{zone}}" }
+  ]
+}

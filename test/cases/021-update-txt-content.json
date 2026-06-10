@@ -1,0 +1,18 @@
+{
+  "name": "update-txt-content",
+  "description": "Upsert updates host3-{{nonce}} TXT content and establishes host6-{{nonce}} A for case 022.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.11" },
+      { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-updated-{{nonce}}" },
+      { "name": "host4-{{nonce}}", "type": "CNAME", "data": "host1-{{nonce}}.{{zone}}" },
+      { "name": "host6-{{nonce}}", "type": "A", "data": "203.0.113.60" }
+    ]
+  },
+  "expect_rr": [
+    { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-updated-{{nonce}}" },
+    { "name": "host6-{{nonce}}", "type": "A", "data": "203.0.113.60" }
+  ]
+}

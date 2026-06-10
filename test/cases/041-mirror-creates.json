@@ -1,0 +1,22 @@
+{
+  "name": "mirror-creates",
+  "description": "Mirror mode creates a newly declared host8-{{nonce}} A record.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "mirror",
+    "default_ttl": 120000000000,
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.11" },
+      { "name": "host4-{{nonce}}", "type": "CNAME", "data": "host1-{{nonce}}.{{zone}}" },
+      {
+        "name": "host6-{{nonce}}",
+        "type": "A",
+        "ttl": 3600000000000,
+        "data": "203.0.113.60"
+      },
+      { "name": "host7-{{nonce}}", "type": "A", "ttl": 0, "data": "203.0.113.70" },
+      { "name": "host8-{{nonce}}", "type": "A", "data": "203.0.113.80" }
+    ]
+  },
+  "expect_rr": [{ "name": "host8-{{nonce}}", "type": "A", "data": "203.0.113.80" }]
+}

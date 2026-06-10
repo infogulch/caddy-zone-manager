@@ -1,0 +1,17 @@
+{
+  "name": "mirror-sibling-removed",
+  "description": "Mirror deletes one TXT sibling while the declared sibling remains.",
+  "tier": "advisory",
+  "apply_zone": {
+    "sync_mode": "mirror",
+    "records": [
+      { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-keep-{{nonce}}" }
+    ]
+  },
+  "expect_rr": [
+    { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-keep-{{nonce}}" }
+  ],
+  "absent_rr": [
+    { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-drop-{{nonce}}" }
+  ]
+}

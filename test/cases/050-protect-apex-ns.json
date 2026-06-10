@@ -1,0 +1,13 @@
+{
+  "name": "protect-apex-ns",
+  "description": "Mirror with empty records and default protection leaves the apex NS RRset intact.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "mirror",
+    "protect": ["default"],
+    "records": []
+  },
+  "expect_rr": [
+    { "name": "@", "type": "NS" }
+  ]
+}

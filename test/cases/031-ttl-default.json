@@ -1,0 +1,29 @@
+{
+  "name": "ttl-default",
+  "description": "default_ttl 120s applies to new host7-{{nonce}} A declared with ttl 0.",
+  "tier": "advisory",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "default_ttl": 120000000000,
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.11" },
+      { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-updated-{{nonce}}" },
+      { "name": "host4-{{nonce}}", "type": "CNAME", "data": "host1-{{nonce}}.{{zone}}" },
+      {
+        "name": "host6-{{nonce}}",
+        "type": "A",
+        "ttl": 300000000000,
+        "data": "203.0.113.60"
+      },
+      { "name": "host7-{{nonce}}", "type": "A", "ttl": 0, "data": "203.0.113.70" }
+    ]
+  },
+  "expect_rr": [
+    {
+      "name": "host7-{{nonce}}",
+      "type": "A",
+      "data": "203.0.113.70",
+      "ttl": 120000000000
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "protect-rrset-plant",
+  "description": "Plant host8-{{nonce}} TXT via upsert with no protect_rrsets rule active.",
+  "tier": "advisory",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host8-{{nonce}}", "type": "TXT", "data": "czm-protected-{{nonce}}" }
+    ]
+  },
+  "expect_rr": [
+    { "name": "host8-{{nonce}}", "type": "TXT", "data": "czm-protected-{{nonce}}" }
+  ]
+}

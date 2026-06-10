@@ -1,0 +1,23 @@
+{
+  "name": "mirror-empty",
+  "description": "Mirror with an empty record set deletes every unprotected test record.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "mirror",
+    "records": []
+  },
+  "absent_rr": [
+    { "name": "host1-{{nonce}}", "type": "A" },
+    { "name": "host2-{{nonce}}", "type": "AAAA" },
+    { "name": "host3-{{nonce}}", "type": "TXT" },
+    { "name": "host4-{{nonce}}", "type": "CNAME" },
+    { "name": "@", "type": "MX" },
+    { "name": "@", "type": "CAA" },
+    { "name": "_test-{{nonce}}._tcp", "type": "SRV" },
+    { "name": "sub-{{nonce}}", "type": "NS" },
+    { "name": "host5-{{nonce}}", "type": "HTTPS" },
+    { "name": "host6-{{nonce}}", "type": "A" },
+    { "name": "host7-{{nonce}}", "type": "A" },
+    { "name": "host8-{{nonce}}", "type": "A" }
+  ]
+}

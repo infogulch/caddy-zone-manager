@@ -1,0 +1,11 @@
+{
+  "name": "protect-none-report",
+  "description": "With protection disabled, report mode counts apex NS/SOA as delete candidates.",
+  "tier": "advisory",
+  "apply_zone": {
+    "sync_mode": "report",
+    "protect": ["none"],
+    "records": []
+  },
+  "expect_sync": { "would_delete_min": 1 }
+}

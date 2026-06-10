@@ -1,0 +1,14 @@
+{
+  "name": "upsert-preserves-undeclared",
+  "description": "Upsert without host6-{{nonce}} declared must not delete the existing host6-{{nonce}} A record.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.11" },
+      { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-updated-{{nonce}}" },
+      { "name": "host4-{{nonce}}", "type": "CNAME", "data": "host1-{{nonce}}.{{zone}}" }
+    ]
+  },
+  "expect_rr": [{ "name": "host6-{{nonce}}", "type": "A", "data": "203.0.113.60" }]
+}

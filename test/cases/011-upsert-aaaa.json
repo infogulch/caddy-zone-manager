@@ -1,0 +1,15 @@
+{
+  "name": "upsert-aaaa",
+  "description": "Upsert creates an AAAA record at host2-{{nonce}} while keeping prior records alive.",
+  "tier": "advisory",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.10" },
+      { "name": "host2-{{nonce}}", "type": "AAAA", "data": "2001:db8::1" }
+    ]
+  },
+  "expect_rr": [
+    { "name": "host2-{{nonce}}", "type": "AAAA", "data": "2001:db8::1" }
+  ]
+}

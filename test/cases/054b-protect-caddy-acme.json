@@ -1,0 +1,15 @@
+{
+  "name": "protect-caddy-acme",
+  "description": "Mirror with default protection must not delete the undeclared _acme-challenge TXT; host8-{{nonce}} TXT is re-declared to keep it alive.",
+  "tier": "advisory",
+  "apply_zone": {
+    "sync_mode": "mirror",
+    "protect": ["default"],
+    "records": [
+      { "name": "host8-{{nonce}}", "type": "TXT", "data": "czm-protected-{{nonce}}" }
+    ]
+  },
+  "expect_rr": [
+    { "name": "_acme-challenge.host1-{{nonce}}", "type": "TXT", "data": "czm-acme-{{nonce}}" }
+  ]
+}

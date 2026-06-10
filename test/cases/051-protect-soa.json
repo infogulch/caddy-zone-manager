@@ -1,0 +1,13 @@
+{
+  "name": "protect-soa",
+  "description": "Mirror with empty records and default protection leaves the apex SOA intact.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "mirror",
+    "protect": ["default"],
+    "records": []
+  },
+  "expect_rr": [
+    { "name": "@", "type": "SOA" }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "idempotency-aaaa-normalize",
+  "description": "Re-declaring host9-{{nonce}} AAAA with verbose IPv6 notation is a no-op after canonical normalization.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host9-{{nonce}}", "type": "AAAA", "data": "2001:0db8:0000:0000:0000:0000:0000:0001" }
+    ]
+  },
+  "expect_sync": { "created": 0, "updated": 0 }
+}

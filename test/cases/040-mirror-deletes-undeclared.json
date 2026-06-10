@@ -1,0 +1,21 @@
+{
+  "name": "mirror-deletes-undeclared",
+  "description": "Switching to mirror mode deletes the undeclared host3-{{nonce}} TXT RRset.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "mirror",
+    "default_ttl": 120000000000,
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.11" },
+      { "name": "host4-{{nonce}}", "type": "CNAME", "data": "host1-{{nonce}}.{{zone}}" },
+      {
+        "name": "host6-{{nonce}}",
+        "type": "A",
+        "ttl": 3600000000000,
+        "data": "203.0.113.60"
+      },
+      { "name": "host7-{{nonce}}", "type": "A", "ttl": 0, "data": "203.0.113.70" }
+    ]
+  },
+  "absent_rr": [{ "name": "host3-{{nonce}}", "type": "TXT" }]
+}

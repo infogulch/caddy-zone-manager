@@ -1,0 +1,15 @@
+{
+  "name": "report-idempotent",
+  "description": "Re-reloading the identical report config produces a stable plan with no double-counting.",
+  "tier": "critical",
+  "apply_zone": {
+    "sync_mode": "report",
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "ttl": 0, "data": "203.0.113.10" }
+    ]
+  },
+  "absent_rr": [
+    { "name": "host1-{{nonce}}", "type": "A" }
+  ],
+  "expect_sync": { "would_create": 1 }
+}

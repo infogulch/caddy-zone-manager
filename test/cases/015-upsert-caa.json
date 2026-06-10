@@ -1,0 +1,17 @@
+{
+  "name": "upsert-caa",
+  "description": "Upsert creates a CAA record at the apex.",
+  "tier": "advisory",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "records": [
+      { "name": "host1-{{nonce}}", "type": "A", "data": "203.0.113.10" },
+      { "name": "host3-{{nonce}}", "type": "TXT", "data": "czm-{{nonce}}" },
+      { "name": "host4-{{nonce}}", "type": "CNAME", "data": "host1-{{nonce}}.{{zone}}" },
+      { "name": "@", "type": "CAA", "data": "0 issue \"letsencrypt.org\"" }
+    ]
+  },
+  "expect_rr": [
+    { "name": "@", "type": "CAA", "data": "0 issue \"letsencrypt.org\"" }
+  ]
+}

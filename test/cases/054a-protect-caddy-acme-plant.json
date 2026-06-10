@@ -1,0 +1,15 @@
+{
+  "name": "protect-caddy-acme-plant",
+  "description": "Plant _acme-challenge.host1-{{nonce}} TXT via upsert with the caddy-acme policy disabled.",
+  "tier": "advisory",
+  "apply_zone": {
+    "sync_mode": "upsert",
+    "protect": ["apex-ns", "soa"],
+    "records": [
+      { "name": "_acme-challenge.host1-{{nonce}}", "type": "TXT", "data": "czm-acme-{{nonce}}" }
+    ]
+  },
+  "expect_rr": [
+    { "name": "_acme-challenge.host1-{{nonce}}", "type": "TXT", "data": "czm-acme-{{nonce}}" }
+  ]
+}

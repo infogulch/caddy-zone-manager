@@ -1,0 +1,13 @@
+{
+  "name": "protect-rrset-custom",
+  "description": "Mirror with a protect_rrsets rule must not delete the undeclared host8-{{nonce}} TXT.",
+  "tier": "advisory",
+  "apply_zone": {
+    "sync_mode": "mirror",
+    "protect_rrsets": [["TXT", "host8-{{nonce}}"]],
+    "records": []
+  },
+  "expect_rr": [
+    { "name": "host8-{{nonce}}", "type": "TXT", "data": "czm-protected-{{nonce}}" }
+  ]
+}
