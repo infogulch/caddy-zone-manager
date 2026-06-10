@@ -268,6 +268,16 @@ func TestParseApp_Errors(t *testing.T) {
 			provider mock
 			sync_mode upsert
 		}`,
+		"duplicate records block": `dns_zone example.com {
+			provider mock
+			sync_mode upsert
+			records {
+				a @ 203.0.113.10
+			}
+			records {
+				a www 203.0.113.11
+			}
+		}`,
 		"records without block": `dns_zone example.com {
 			records
 		}`,

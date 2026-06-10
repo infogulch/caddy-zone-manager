@@ -54,6 +54,9 @@ func init() {
 // duration (e.g. "1h"). Zone names, protect_rrset entries, and record
 // name/type/data fields support Caddy placeholders, which are resolved at
 // provision time.
+//
+// Unlike the other directives, `protect_rrset` may appear more than once per
+// block; its entries accumulate.
 func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 	app := new(App)
 	if prev, ok := existingVal.(httpcaddyfile.App); ok && len(prev.Value) > 0 {
@@ -140,6 +143,9 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 			seenDefaultTTL = true
 
 		case "records":
+			if seenRecords {
+				return nil, d.Err("records may be specified at most once per dns_zone block")
+			}
 			seenRecords = true
 			if len(d.RemainingArgs()) > 0 {
 				return nil, d.Err("records does not take arguments; use a records { ... } block")

@@ -131,8 +131,16 @@ func (App) CaddyModule() caddy.ModuleInfo {
 
 // Provision calls Validate to normalize the app configuration, then loads and
 // provisions each zone's DNS provider.
-func (a *App) Provision(ctx caddy.Context) error {
+func (a *App) Provision(ctx caddy.Context) (err error) {
 	a.ctx, a.cancel = caddy.NewContext(ctx)
+	// If provisioning fails, Caddy never calls Start/Stop on this instance, so
+	// cancel the child context here rather than leaking it until the parent
+	// context is cancelled.
+	defer func() {
+		if err != nil {
+			a.cancel()
+		}
+	}()
 	a.logger = ctx.Logger(a)
 	a.wg = &sync.WaitGroup{}
 
@@ -146,10 +154,6 @@ func (a *App) Provision(ctx caddy.Context) error {
 	a.normalizedZones = zones
 
 	for _, zc := range a.normalizedZones {
-		// DNS provider is required.
-		if len(zc.DNSProviderRaw) == 0 {
-			return fmt.Errorf("zone %q: a DNS provider is required", zc.ZoneName)
-		}
 		val, err := ctx.LoadModule(zc, "DNSProviderRaw")
 		if err != nil {
 			return fmt.Errorf("zone %q: loading DNS provider module: %w", zc.ZoneName, err)
@@ -233,6 +237,13 @@ func (a *App) getNormalizedZones() (zones []*ZoneConfig, err error) {
 		}
 		zc.Records = records
 
+		// DNS provider is required. Checked here (rather than in Provision) so
+		// that `caddy validate` reports it, and so the duplicate detection
+		// below never has to compare an absent provider config.
+		if len(zc.DNSProviderRaw) == 0 {
+			return nil, fmt.Errorf("zone %q: a DNS provider is required", zc.ZoneName)
+		}
+
 		// Check for declared records that are also protected by the ignore filter.
 		// This is a configuration error.
 		for j := range zc.Records {
@@ -256,7 +267,10 @@ func (a *App) getNormalizedZones() (zones []*ZoneConfig, err error) {
 				return nil, fmt.Errorf("failed to compare zone provider config: %w", err)
 			}
 			if zi.ZoneName == zj.ZoneName && ok {
-				return nil, fmt.Errorf("duplicate zone found at indexes %d and %d. zone name: %q, provider config: %s", i, i+j+1, zi.ZoneName, string(zi.DNSProviderRaw))
+				// Only name the provider module; the raw provider config may
+				// contain secrets (e.g. API tokens) that must not end up in
+				// logs or error output.
+				return nil, fmt.Errorf("duplicate zone found at indexes %d and %d. zone name: %q, provider: %s", i, i+j+1, zi.ZoneName, providerName(zi.DNSProviderRaw))
 			}
 		}
 	}
@@ -304,6 +318,19 @@ func isValidRRTypeToken(typ string) bool {
 		return false
 	}
 	return true
+}
+
+// providerName extracts the provider module name from a raw provider config
+// for use in error messages. It deliberately returns only the name: the rest
+// of the config may contain secrets such as API tokens.
+func providerName(raw json.RawMessage) string {
+	var v struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil || v.Name == "" {
+		return "(unknown)"
+	}
+	return v.Name
 }
 
 // jsonEqual compares two JSON-encoded byte slices for equality.

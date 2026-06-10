@@ -2,12 +2,15 @@ package zonemanager
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/libdns/libdns"
+	"go.uber.org/zap"
 )
 
 // getterOnly implements only libdns.RecordGetter, to exercise
@@ -207,6 +210,11 @@ func TestCanonicalData(t *testing.T) {
 		{"https passed through trimmed", rr("@", "HTTPS", `  1 . ech=AEX+DQ alpn="h2,h3"  `, 0), `1 . ech=AEX+DQ alpn="h2,h3"`},
 		// Unparseable RDATA falls back to the trimmed raw value.
 		{"unparseable falls back", rr("@", "A", "  not-an-ip  ", 0), "not-an-ip"},
+		// Target tokens are case-folded and get exactly one trailing dot
+		// (DNS names are case-insensitive, RFC 4343).
+		{"mx target case folded", rr("@", "MX", "10 MAIL.Example.COM.", 0), "10 mail.example.com."},
+		{"ns missing trailing dot added", rr("@", "NS", "ns1.example.com", 0), "ns1.example.com."},
+		{"cname extra trailing dots collapsed", rr("www", "CNAME", "host.example.com..", 0), "host.example.com."},
 	}
 	for _, tc := range cases {
 		if got := canonicalData(tc.rr); got != tc.want {
@@ -291,6 +299,146 @@ func TestNormalizeZones_DuplicateRejected(t *testing.T) {
 		_, err := app.getNormalizedZones()
 		if err == nil {
 			t.Errorf("%s: expected error for duplicate zone block, got nil", name)
+		}
+	}
+}
+
+func TestNormalizeZones_DuplicateErrorRedactsProviderConfig(t *testing.T) {
+	// The duplicate-zone error must name the provider module but never
+	// include the raw provider config, which may contain secrets.
+	const secret = "s3cret-token-do-not-log"
+	raw := json.RawMessage(`{"name":"mock","api_token":"` + secret + `"}`)
+	mk := func() *ZoneConfig {
+		return &ZoneConfig{
+			ZoneName:       "example.com",
+			SyncMode:       syncModeUpsert,
+			DNSProviderRaw: raw,
+		}
+	}
+	app := &App{Zones: []*ZoneConfig{mk(), mk()}}
+	_, err := app.getNormalizedZones()
+	if err == nil {
+		t.Fatal("expected duplicate zone error")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("duplicate zone error leaks provider secret: %q", err)
+	}
+	if !strings.Contains(err.Error(), "mock") {
+		t.Errorf("duplicate zone error %q does not name the provider module", err)
+	}
+}
+
+func TestProviderName(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"valid", `{"name":"cloudflare","api_token":"x"}`, "cloudflare"},
+		{"missing name", `{"api_token":"x"}`, "(unknown)"},
+		{"invalid json", `not-json`, "(unknown)"},
+		{"empty", ``, "(unknown)"},
+	}
+	for _, tc := range cases {
+		if got := providerName(json.RawMessage(tc.raw)); got != tc.want {
+			t.Errorf("%s: providerName(%q) = %q, want %q", tc.name, tc.raw, got, tc.want)
+		}
+	}
+}
+
+func TestWithPreservedTTLs_ParseFailureFallsBack(t *testing.T) {
+	// "not-an-ip" makes RR.Parse fail. canonicalData falls back to the raw
+	// data, so it matches the current record's data and the TTL-preservation
+	// path is taken; the re-parse then fails, which must fall back to the
+	// original declared record rather than emitting a nil record.
+	desired := recs(rr("@", "A", "not-an-ip", 0))
+	current := recs(rr("@", "A", "not-an-ip", 300))
+	out := withPreservedTTLs(desired, current, zap.NewNop())
+	if len(out) != 1 {
+		t.Fatalf("len(out) = %d, want 1", len(out))
+	}
+	if out[0] == nil {
+		t.Fatal("withPreservedTTLs returned a nil record")
+	}
+	got := out[0].RR()
+	if got.Data != "not-an-ip" || got.TTL != 0 {
+		t.Errorf("fallback record = %+v, want original declared record (data %q, ttl 0)", got, "not-an-ip")
+	}
+}
+
+func TestNormalizeProtectPolicies_Keywords(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want map[string]bool
+	}{
+		{"omitted means default", nil, policySet(defaultProtectPolicies...)},
+		{"default keyword", []string{"default"}, policySet(defaultProtectPolicies...)},
+		{"none keyword", []string{"none"}, map[string]bool{}},
+		{"all keyword", []string{"all"}, policySet(allProtectPolicies...)},
+		{"explicit list trimmed and folded", []string{"CADDY-ACME", " soa "}, map[string]bool{protectCaddyACME: true, protectSOA: true}},
+	}
+	for _, tc := range cases {
+		got, err := normalizeProtectPolicies(tc.in)
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.name, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: normalizeProtectPolicies(%v) = %v, want %v", tc.name, tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestNameInZone(t *testing.T) {
+	cases := []struct {
+		name string
+		zone string
+		want bool
+	}{
+		{"example.com.", "example.com.", true},
+		{"www.example.com.", "example.com.", true},
+		{"a.b.example.com.", "example.com.", true},
+		{"WWW.Example.COM.", "example.com.", true},
+		// Suffix trick: shares the zone as a string suffix but is not in it.
+		{"notexample.com.", "example.com.", false},
+		{"example.com.evil.net.", "example.com.", false},
+		{"com.", "example.com.", false},
+	}
+	for _, tc := range cases {
+		if got := nameInZone(tc.name, tc.zone); got != tc.want {
+			t.Errorf("nameInZone(%q, %q) = %v, want %v", tc.name, tc.zone, got, tc.want)
+		}
+	}
+}
+
+func TestJSONEqual(t *testing.T) {
+	cases := []struct {
+		name    string
+		a, b    string
+		want    bool
+		wantErr bool
+	}{
+		{"key order insensitive", `{"a":1,"b":2}`, `{"b":2,"a":1}`, true, false},
+		{"different values", `{"a":1}`, `{"a":2}`, false, false},
+		{"array order sensitive", `[1,2]`, `[2,1]`, false, false},
+		{"nested equal", `{"a":{"b":[1,"x"]}}`, `{"a":{"b":[1,"x"]}}`, true, false},
+		{"invalid json errors", `not-json`, `{}`, false, true},
+	}
+	for _, tc := range cases {
+		got, err := jsonEqual([]byte(tc.a), []byte(tc.b))
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("%s: expected error, got nil", tc.name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.name, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("%s: jsonEqual(%q, %q) = %v, want %v", tc.name, tc.a, tc.b, got, tc.want)
 		}
 	}
 }

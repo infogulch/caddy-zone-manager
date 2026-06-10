@@ -238,9 +238,9 @@ func (a *App) syncZone(zc *ZoneConfig) error {
 			// both cases the current TTL is preserved for members whose
 			// desired TTL is 0 ("provider decides").
 			if zc.SyncMode == syncModeUpsert {
-				toApply = append(toApply, mergeRRsets(drecs, crecs)...)
+				toApply = append(toApply, mergeRRsets(drecs, crecs, log)...)
 			} else {
-				toApply = append(toApply, withPreservedTTLs(drecs, crecs)...)
+				toApply = append(toApply, withPreservedTTLs(drecs, crecs, log)...)
 			}
 			updated += len(drecs)
 			log.Debug("RRset will be updated", zap.String("rrset", key.String()))
@@ -387,6 +387,13 @@ func dataTTLMap(recs []libdns.Record) map[string]time.Duration {
 // unequal. TXT records are opaque to libdns (round-trip is a no-op), so their
 // data is effectively returned trimmed. Both fall back to the trimmed raw
 // RDATA.
+//
+// Known limitation: because TXT data is compared as-is, a provider that
+// echoes TXT RDATA in a different presentation form than the config — e.g.
+// surrounding quotes (`"v=spf1 -all"`) or strings split into 255-octet
+// chunks — will defeat idempotency for that RRset, causing it to be rewritten
+// on every sync. If this affects you, declare the record in the same form the
+// provider returns it.
 func canonicalData(rr libdns.RR) string {
 	typ := strings.ToUpper(rr.Type)
 	switch typ {
@@ -429,7 +436,7 @@ func canonicalizeTargetToken(data string) string {
 // change to one member from resetting the provider-assigned TTLs of the
 // members that aren't actually changing. Records with an explicit (non-zero)
 // desired TTL, or whose data is new, are returned unchanged.
-func withPreservedTTLs(desired, current []libdns.Record) []libdns.Record {
+func withPreservedTTLs(desired, current []libdns.Record, log *zap.Logger) []libdns.Record {
 	curTTL := dataTTLMap(current)
 	out := make([]libdns.Record, 0, len(desired))
 	for _, r := range desired {
@@ -437,9 +444,18 @@ func withPreservedTTLs(desired, current []libdns.Record) []libdns.Record {
 		if rr.TTL == 0 {
 			if t, ok := curTTL[canonicalData(rr)]; ok && t != 0 {
 				rr.TTL = t
-				// Parse cannot fail here: these records were already
-				// validated at provision time and only the TTL changed.
-				rec, _ := rr.Parse()
+				// Parse should never fail here: these records were already
+				// validated at provision time and only the TTL changed. If it
+				// does, fall back to the original validated record (TTL 0)
+				// rather than passing a nil record to the provider.
+				rec, err := rr.Parse()
+				if err != nil {
+					log.Error("re-parsing record with preserved TTL failed; writing declared record as-is",
+						zap.String("name", rr.Name), zap.String("type", rr.Type),
+						zap.Duration("ttl", rr.TTL), zap.Error(err))
+					out = append(out, r)
+					continue
+				}
 				out = append(out, rec)
 				continue
 			}
@@ -475,8 +491,8 @@ func rrsetSubset(desired, current []libdns.Record) bool {
 // with TTL carry-over for unchanged data — and then appends any current
 // records whose RDATA is not covered by desired, so that SetRecords does not
 // inadvertently delete sibling records within the same RRset.
-func mergeRRsets(desired, current []libdns.Record) []libdns.Record {
-	merged := withPreservedTTLs(desired, current)
+func mergeRRsets(desired, current []libdns.Record, log *zap.Logger) []libdns.Record {
+	merged := withPreservedTTLs(desired, current, log)
 	desiredData := make(map[string]bool, len(desired))
 	for _, r := range desired {
 		desiredData[canonicalData(r.RR())] = true

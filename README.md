@@ -85,7 +85,8 @@ lose or overwrite those changes.
 
 ## Record directives
 
-Record directives live underneath a `records { … }` block. There are two forms:
+Record directives live underneath a `records { … }` block, which may be
+specified at most once per zone. There are two forms:
 
 Single-line forms: (TTL is an optional trailing field.)
 
@@ -287,12 +288,15 @@ all blocks aggregate into one app instance:
 ```
 
 **Each `(zone, provider)` pair must be declared in exactly one block.**
-Declaring the same zone twice with the same name and same provider (after domain
-trailing-dot/case normalization) is an error. This allows you to manage the same
-zone on different providers, say, provider one configures NS records to point to
-provider 2 which then manages regular records. Each `(zone, provider)` pair is
-then reconciled independently, so make sure every block carries the complete
-desired state and protection settings for the records it manages.
+Syncing the same zone with the same provider could cause concurrent zone updates
+which could lead to inconsistent state. So declaring the same zone twice with
+the same name (after domain trailing-dot/case normalization) and the same
+provider configuration is an error. Allowing the same zone with different
+providers is allowed and could be used to, say, have provider 1 configure NS
+records to point to provider 2 which then manages regular records. Each `(zone,
+provider)` pair is then reconciled independently, so make sure every block
+carries the complete desired state and protection settings for the records it
+manages.
 
 ## Equivalent JSON
 
@@ -385,7 +389,12 @@ differences like IPv6 compression (`AAAA`), flag and quoting style (`CAA`), or
 internal whitespace (`MX`/`SRV`) don't trigger a rewrite. `HTTPS`/`SVCB`
 records are compared verbatim; libdns serializes their `SvcParams` from a Go
 map, so re-serializing could produce a different order and make equal records
-compare unequal.
+compare unequal. `TXT` records are also compared verbatim (libdns treats TXT
+data as opaque), so if your provider echoes TXT RDATA in a different
+presentation form than your config — e.g. with surrounding quotes
+(`"v=spf1 -all"`) or split into 255-octet strings — the RRset will be
+rewritten on every sync; if that happens, declare the record in the same form
+the provider returns it.
 
 A failure in one zone is logged and isolated; it does not abort other zones.
 The initial sync is retried with exponential backoff to tolerate a not-yet-ready

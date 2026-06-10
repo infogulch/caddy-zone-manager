@@ -3,6 +3,7 @@ package zonemanager
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,6 +204,49 @@ func TestProvision_DoesNotMutateOriginalConfig(t *testing.T) {
 	orig := app.Zones[0].Records[0]
 	if orig.Type != "a" || orig.TTL != 0 {
 		t.Errorf("original record mutated: got type=%q ttl=%v, want type=%q ttl=0", orig.Type, orig.TTL, "a")
+	}
+}
+
+func TestProvision_FailureCancelsContext(t *testing.T) {
+	// A failed Provision must cancel the app's child context: Caddy never
+	// calls Start/Stop on a failed-provision instance, so nothing else would
+	// release it.
+	app := &App{Zones: []*ZoneConfig{provZone("example.com", "")}} // missing sync_mode
+	if err := app.Provision(newTestContext(t)); err == nil {
+		t.Fatal("expected Provision error, got nil")
+	}
+	select {
+	case <-app.ctx.Done():
+	default:
+		t.Error("app context not cancelled after failed Provision")
+	}
+
+	// A successful Provision must leave the context alive for Start.
+	app2 := &App{Zones: []*ZoneConfig{provZone("example.com", syncModeUpsert)}}
+	if err := app2.Provision(newTestContext(t)); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	defer app2.cancel()
+	select {
+	case <-app2.ctx.Done():
+		t.Error("app context cancelled after successful Provision")
+	default:
+	}
+}
+
+func TestValidate_MissingProvider(t *testing.T) {
+	// The provider-required check runs during validation (not just Provision)
+	// so that `caddy validate` reports it, with a clear error rather than a
+	// JSON-comparison failure from duplicate detection.
+	zc := provZone("example.com", syncModeUpsert)
+	zc.DNSProviderRaw = nil
+	app := &App{Zones: []*ZoneConfig{zc}}
+	err := app.Validate()
+	if err == nil {
+		t.Fatal("expected error for missing provider, got nil")
+	}
+	if !strings.Contains(err.Error(), "DNS provider is required") {
+		t.Errorf("error = %q, want it to mention that a DNS provider is required", err)
 	}
 }
 
