@@ -28,25 +28,24 @@ EXPECT_DOMAIN_RECORDS_WILL_BE_DESTROYED=1 ./czm-test \
     --provider-json '{"name":"cloudflare","api_token":"..."}'
 ```
 
-[`run.sh`](run.sh) wraps this for a `.env` file declaring `DOMAIN` and
-`LINODE_TOKEN`, passing extra arguments through (e.g.
-`sh test/run.sh --dns-timeout 300s --nameservers ns1.linode.com`).
+[`run.sh`](run.sh) wraps this for a `.env` file declaring `PROVIDER_JSON` and
+`XCADDY_BUILD_ARGS` (e.g. `sh test/run.sh -expect-domain-records-will-be-destroyed -zone example.com`).
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--caddy` | `caddy` | Path to a Caddy binary built with this module and the provider plugin |
-| `--zone` | *(required)* | Zone name, e.g. `example.com` |
-| `--provider-json` | *(required)* | Provider config as a JSON object string or `@path/to/file` |
-| `--cases` | `test/cases` | Directory containing the `*.json` case files |
-| `--config` | `./caddy-test.json` | Path the harness writes the per-step JSON config to |
-| `--caddy-log` | `./caddy-test.log` | Path for Caddy's structured JSON log |
-| `--run-log` | `./caddy-test-run.log` | Path for the harness's own structured log |
-| `--admin-addr` | `localhost:2019` | Caddy Admin API address |
-| `--dns-timeout` | `60s` | Maximum wait time per DNS assertion |
-| `--dns-poll-interval` | `2s` | Interval between DNS polls |
-| `--nameservers` | *(auto-discover)* | Comma-separated authoritative NS addresses; the **first** entry is the sticky assertion target. Required when the zone's public delegation doesn't point at the provider's nameservers |
-| `--all-nameservers` | *(flag)* | Query every nameserver and require unanimity (slower, strict) |
-| `--expect-domain-records-will-be-destroyed` | *(flag)* | Required confirmation |
+| `-caddy` | `caddy` | Path to a Caddy binary built with this module and the provider plugin |
+| `-zone` | *(required)* | Zone name, e.g. `example.com` |
+| `-provider-json` | *(required)* | Provider config as a JSON object string or `@path/to/file` |
+| `-cases` | `test/cases` | Directory containing the `*.json` case files |
+| `-config` | `./caddy-test.json` | Path the harness writes the per-step JSON config to |
+| `-caddy-log` | `./caddy-test.log` | Path for Caddy's structured JSON log |
+| `-run-log` | `./caddy-test-run.log` | Path for the harness's own structured log |
+| `-admin-addr` | `localhost:2019` | Caddy Admin API address |
+| `-dns-timeout` | `60s` | Maximum wait time per DNS assertion |
+| `-dns-poll-interval` | `2s` | Interval between DNS polls |
+| `-nameservers` | *(auto-discover)* | Comma-separated authoritative NS addresses; the **first** entry is the sticky assertion target. Required when the zone's public delegation doesn't point at the provider's nameservers |
+| `-all-nameservers` | *(flag)* | Query every nameserver and require unanimity (slower, strict) |
+| `-expect-domain-records-will-be-destroyed` | *(flag)* | Required confirmation |
 
 ## How a run works
 
